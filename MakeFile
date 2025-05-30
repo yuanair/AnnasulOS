@@ -1,11 +1,14 @@
+
+THE_OS_NAME := boot
+THE_OS_ARCH := x86_64
+
 BUILD := ./build
 BIN := $(BUILD)/bin
 
 HD_IMG_PATH := $(BIN)/hd.img
-
-.PHONY: all clean qemu vmware
-
-all: $(HD_IMG_PATH)
+VMWARE_PATH := $(BUILD)/vmware
+VMDK_PATH := $(VMWARE_PATH)/$(THE_OS_NAME).vmdk
+VMX_PATH := $(VMWARE_PATH)/$(THE_OS_NAME).vmx
 
 $(BUILD)/boot/%.o: kernel/boot/%.asm
 	@mkdir -p $(@D)
@@ -17,11 +20,11 @@ $(HD_IMG_PATH): $(BUILD)/boot/boot.o
 	bximage -q -hd=16 -func=create -sectsize=512 -imgmode=flat $@
 	dd if=$< of=$@ bs=512 seek=0 count=1 conv=notrunc
 
-$(BIN)/boot.vmdk: $(HD_IMG_PATH)
+$(VMDK_PATH): $(HD_IMG_PATH)
 	@mkdir -p $(@D)
 	qemu-img convert -O vmdk -o subformat=streamOptimized $< $@
 
-$(BIN)/os.vmx: $(BIN)/boot.vmdk
+$(VMX_PATH): $(VMDK_PATH)
 	@mkdir -p $(@D)
 	@echo "Creating VMware configuration..."
 	@echo "\
@@ -29,7 +32,7 @@ $(BIN)/os.vmx: $(BIN)/boot.vmdk
 	config.version = "8"\n\
 	virtualHW.version = "19"\n\
 	memsize = "512"\n\
-	displayName = "boot"\n\
+	displayName = "$(THE_OS_NAME)"\n\
 	guestOS = "other"\n\
 	numvcpus = "1"\n\
 	cpuid.coresPerSocket = "1"\n\
@@ -42,21 +45,22 @@ $(BIN)/os.vmx: $(BIN)/boot.vmdk
 	ethernet0.connectionType = "nat"\n\
 	sound.present = "FALSE"\n\
 	usb.present = "FALSE"\n\
-	serial0.present = "TRUE"\n\
-	serial0.fileType = "pipe"\n\
-	serial0.fileName = "/tmp/$(VM_NAME)-serial"\n\
-	serial0.tryNo = "0"\n\
-	serial0.yieldOnMsrRead = "TRUE"\n\
 	debugStub.listen.guest32 = "TRUE"\n\
 	debugStub.port.guest32 = "8832"\n\
 	" > $@
 	@echo "VMX file generated at $@"
 
+.PHONY: build rebuild clean run_as_qemu run_as_vmware
+
+build: $(HD_IMG_PATH) $(VMX_PATH)
+
+rebuild: clean build
+
 clean:
 	@rm -rf $(BUILD)
 
-qemu: $(HD_IMG_PATH)
-	qemu-system-x86_64 -hda $<
+run_as_qemu: $(HD_IMG_PATH)
+	qemu-system-$(THE_OS_ARCH) -hda $<
 
-vmware: $(BIN)/os.vmx
+run_as_vmware: $(VMX_PATH)
 	vmware -x $<
